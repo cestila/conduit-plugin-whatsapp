@@ -724,11 +724,31 @@ func (p *WhatsAppPlugin) Connect(ctx context.Context, req *conduitv1.ConnectRequ
 			}
 
 		case *events.Receipt:
-			// Solo las lecturas propias (otro dispositivo) se reflejan como leídos locales.
+			// Lecturas propias (otro dispositivo) se reflejan como leídos locales.
 			if ev := readReceiptEvent(v, func(j types.JID) types.JID {
 				return p.resolveCanonicalJID(context.Background(), j)
 			}); ev != nil {
 				p.eventCh <- ev
+			}
+			// Recibos del destinatario sobre mensajes salientes propios (delivered / read).
+			for _, ev := range outgoingReceiptEvents(v) {
+				p.eventCh <- ev
+			}
+
+		case *events.Disconnected:
+			p.eventCh <- &conduitv1.PluginEvent{
+				EventType:      "channel.disconnected",
+				RemoteSenderId: "whatsapp-system",
+				Body:           "WhatsApp desconectado",
+				SentAtUnix:     time.Now().Unix(),
+			}
+
+		case *events.LoggedOut:
+			p.eventCh <- &conduitv1.PluginEvent{
+				EventType:      "channel.disconnected",
+				RemoteSenderId: "whatsapp-system",
+				Body:           fmt.Sprintf("Sesión cerrada (%v)", v.Reason),
+				SentAtUnix:     time.Now().Unix(),
 			}
 
 		case *events.Connected:
@@ -1542,4 +1562,40 @@ func readReceiptEvent(v *events.Receipt, canonical func(types.JID) types.JID) *c
 		SentAtUnix:      v.Timestamp.Unix(),
 		RemoteMessageId: strings.Join(msgIDs, ","),
 	}
+}
+
+// outgoingReceiptEvents convierte recibos de entrega/lectura del destinatario sobre
+// mensajes salientes propios en eventos message.delivered / message.read para conduitd.
+func outgoingReceiptEvents(v *events.Receipt) []*conduitv1.PluginEvent {
+	if v == nil || v.IsFromMe {
+		return nil
+	}
+	if v.Chat.Server == types.BroadcastServer || v.Chat.User == "status" {
+		return nil
+	}
+	var evType string
+	switch v.Type {
+	case types.ReceiptTypeDelivered:
+		evType = "message.delivered"
+	case types.ReceiptTypeRead:
+		evType = "message.read"
+	default:
+		return nil
+	}
+	out := make([]*conduitv1.PluginEvent, 0, len(v.MessageIDs))
+	chatStr := v.Chat.String()
+	for _, id := range v.MessageIDs {
+		msgID := strings.TrimSpace(string(id))
+		if msgID == "" {
+			continue
+		}
+		out = append(out, &conduitv1.PluginEvent{
+			EventType:       evType,
+			RemoteSenderId:  chatStr,
+			ChatJid:         chatStr,
+			SentAtUnix:      v.Timestamp.Unix(),
+			RemoteMessageId: msgID,
+		})
+	}
+	return out
 }
