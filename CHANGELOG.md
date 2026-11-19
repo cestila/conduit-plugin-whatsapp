@@ -9,6 +9,8 @@ Every pull request with a user-visible change adds an entry under
 
 ## [Unreleased]
 
+## [0.1.3] - 2026-11-19
+
 ### Added
 
 - Implemented `SyncContacts` RPC returning 1:1 person contacts with `@lid` canonical JID resolution, deterministic canonical name preference, and bounded-concurrency avatar lookup, with unit tests.
@@ -38,6 +40,7 @@ version 1 (SDK `v0.1.0`).
 - Plugin manifest (`GetManifest`) so the desktop app renders the account form
   and QR instructions.
 
-[Unreleased]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.2...HEAD
+[Unreleased]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.3...HEAD
+[0.1.3]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.2...v0.1.3
 [0.1.2]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/cestila/conduit-plugin-whatsapp/releases/tag/v0.1.0
