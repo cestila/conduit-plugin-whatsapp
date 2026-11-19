@@ -9,6 +9,14 @@ Every pull request with a user-visible change adds an entry under
 
 ## [Unreleased]
 
+## [0.1.2] - 2026-11-19
+
+### Added
+
+- Outgoing delivery (`message.delivered`) and read (`message.read`) receipt events from recipient receipts.
+- `channel.disconnected` event emission on WhatsApp `Disconnected` and `LoggedOut` socket events.
+- Updated `github.com/cestila/ConduitOmniChat/sdk` to `v0.2.0`.
+
 ## [0.1.0] - 2026-11-13
 
 First public release. Requires a `conduitd` that speaks plugin protocol
@@ -22,5 +30,6 @@ version 1 (SDK `v0.1.0`).
 - Plugin manifest (`GetManifest`) so the desktop app renders the account form
   and QR instructions.
 
-[Unreleased]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.0...HEAD
+[Unreleased]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.2...HEAD
+[0.1.2]: https://github.com/cestila/conduit-plugin-whatsapp/compare/v0.1.0...v0.1.2
 [0.1.0]: https://github.com/cestila/conduit-plugin-whatsapp/releases/tag/v0.1.0

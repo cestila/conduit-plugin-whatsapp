@@ -112,3 +112,30 @@ func TestReadReceiptUsesRecipientAltWhenLIDUnmapped(t *testing.T) {
 		t.Fatalf("se esperaba el número de RecipientAlt: %v", ev)
 	}
 }
+
+func TestOutgoingReceiptEventsDeliveredAndRead(t *testing.T) {
+	chat := types.NewJID("5491167530023", types.DefaultUserServer)
+	deliv := outgoingReceiptEvents(&events.Receipt{
+		MessageSource: types.MessageSource{Chat: chat, IsFromMe: false},
+		Type:          types.ReceiptTypeDelivered,
+		MessageIDs:    []types.MessageID{"m1", "m2"},
+	})
+	if len(deliv) != 2 || deliv[0].EventType != "message.delivered" || deliv[1].RemoteMessageId != "m2" {
+		t.Fatalf("unexpected delivered events: %+v", deliv)
+	}
+	read := outgoingReceiptEvents(&events.Receipt{
+		MessageSource: types.MessageSource{Chat: chat, IsFromMe: false},
+		Type:          types.ReceiptTypeRead,
+		MessageIDs:    []types.MessageID{"m1"},
+	})
+	if len(read) != 1 || read[0].EventType != "message.read" || read[0].RemoteMessageId != "m1" {
+		t.Fatalf("unexpected read events: %+v", read)
+	}
+	if own := outgoingReceiptEvents(&events.Receipt{
+		MessageSource: types.MessageSource{Chat: chat, IsFromMe: true},
+		Type:          types.ReceiptTypeRead,
+		MessageIDs:    []types.MessageID{"m1"},
+	}); len(own) != 0 {
+		t.Fatalf("expected IsFromMe=true ignored, got %+v", own)
+	}
+}
