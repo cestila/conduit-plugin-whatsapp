@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -135,7 +136,7 @@ func (p *WhatsAppPlugin) resolveAvatarURL(ctx context.Context, jid types.JID) st
 	client := p.client
 	p.mu.RUnlock()
 
-	if client == nil || !client.IsConnected() {
+	if client == nil || !client.IsConnected() || ctx.Err() != nil {
 		return ""
 	}
 
@@ -145,7 +146,10 @@ func (p *WhatsAppPlugin) resolveAvatarURL(ctx context.Context, jid types.JID) st
 	picInfo, err := client.GetProfilePictureInfo(callCtx, jid, &whatsmeow.GetProfilePictureParams{
 		Preview: true,
 	})
-	if err != nil || picInfo == nil || picInfo.URL == "" {
+	if err != nil {
+		return ""
+	}
+	if picInfo == nil || picInfo.URL == "" {
 		p.avatarCache.Store(cacheKey, "")
 		return ""
 	}
@@ -222,6 +226,136 @@ func (p *WhatsAppPlugin) syncContacts(ctx context.Context) {
 			}
 		}()
 	}
+}
+
+// SyncContacts returns all 1:1 person contacts from the WhatsApp store, excluding
+// groups/broadcasts and resolving @lid JIDs to their canonical @s.whatsapp.net JIDs.
+func (p *WhatsAppPlugin) SyncContacts(ctx context.Context, req *conduitv1.SyncContactsRequest) (*conduitv1.PluginSyncContactsResponse, error) {
+	p.mu.RLock()
+	client := p.client
+	p.mu.RUnlock()
+
+	if client == nil || client.Store == nil || client.Store.Contacts == nil {
+		return &conduitv1.PluginSyncContactsResponse{
+			Error: "whatsapp store not initialized",
+		}, nil
+	}
+
+	contacts, err := client.Store.Contacts.GetAllContacts(ctx)
+	if err != nil {
+		return &conduitv1.PluginSyncContactsResponse{
+			Error: fmt.Sprintf("failed to load contacts: %v", err),
+		}, nil
+	}
+
+	accountID := req.GetAccountId()
+	jids := make([]types.JID, 0, len(contacts))
+	for jid := range contacts {
+		jids = append(jids, jid)
+	}
+	sort.Slice(jids, func(i, j int) bool {
+		iCanonical := jids[i].Server == types.DefaultUserServer
+		jCanonical := jids[j].Server == types.DefaultUserServer
+		if iCanonical != jCanonical {
+			return iCanonical
+		}
+		return jids[i].String() < jids[j].String()
+	})
+
+	type contactEntry struct {
+		contact *conduitv1.PluginContact
+		jid     types.JID
+	}
+	byRemoteID := make(map[string]contactEntry, len(contacts))
+
+	for _, jid := range jids {
+		c := contacts[jid]
+		if jid.Server != types.DefaultUserServer && jid.Server != types.HiddenUserServer {
+			continue
+		}
+		if jid.User == "" || jid.User == "status" {
+			continue
+		}
+
+		targetJID := p.resolveCanonicalJID(ctx, jid)
+		if targetJID.Server != types.DefaultUserServer && targetJID.Server != types.HiddenUserServer {
+			continue
+		}
+		if targetJID.User == "" || targetJID.User == "status" {
+			continue
+		}
+
+		name := c.FullName
+		if name == "" {
+			name = c.BusinessName
+		}
+		if name == "" {
+			name = c.PushName
+		}
+		if name == "" {
+			name = c.FirstName
+		}
+		if name == "" {
+			continue
+		}
+
+		remoteID := targetJID.String()
+		if existing, exists := byRemoteID[remoteID]; exists && existing.contact.GetDisplayName() != "" {
+			continue
+		}
+
+		byRemoteID[remoteID] = contactEntry{
+			contact: &conduitv1.PluginContact{
+				AccountId:   accountID,
+				RemoteId:    remoteID,
+				DisplayName: name,
+				Phone:       phoneFromCanonicalJID(targetJID),
+			},
+			jid: targetJID,
+		}
+	}
+
+	entries := make([]contactEntry, 0, len(byRemoteID))
+	for _, entry := range byRemoteID {
+		entries = append(entries, entry)
+	}
+	sort.Slice(entries, func(i, j int) bool {
+		return entries[i].contact.RemoteId < entries[j].contact.RemoteId
+	})
+
+	// Populate avatars from cache or with bounded concurrency when connected.
+	connected := client.IsConnected()
+	sem := make(chan struct{}, 5)
+	var wg sync.WaitGroup
+	result := make([]*conduitv1.PluginContact, len(entries))
+
+	for i, entry := range entries {
+		result[i] = entry.contact
+		if val, ok := p.avatarCache.Load(entry.contact.RemoteId); ok {
+			if s, ok := val.(string); ok {
+				entry.contact.AvatarUrl = s
+			}
+			continue
+		}
+		if !connected || ctx.Err() != nil {
+			continue
+		}
+		wg.Add(1)
+		go func(c *conduitv1.PluginContact, targetJID types.JID) {
+			defer wg.Done()
+			sem <- struct{}{}
+			defer func() { <-sem }()
+			if ctx.Err() != nil {
+				return
+			}
+			c.AvatarUrl = p.resolveAvatarURL(ctx, targetJID)
+		}(entry.contact, entry.jid)
+	}
+	wg.Wait()
+
+	return &conduitv1.PluginSyncContactsResponse{
+		Contacts: result,
+	}, nil
 }
 
 // phoneFromCanonicalJID extrae el número E.164 si el JID corresponde a un usuario estándar (@s.whatsapp.net).

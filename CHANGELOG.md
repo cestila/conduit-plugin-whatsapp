@@ -9,6 +9,14 @@ Every pull request with a user-visible change adds an entry under
 
 ## [Unreleased]
 
+### Added
+
+- Implemented `SyncContacts` RPC returning 1:1 person contacts with `@lid` canonical JID resolution, deterministic canonical name preference, and bounded-concurrency avatar lookup, with unit tests.
+
+### Fixed
+
+- Avoid negative-caching empty avatars in `resolveAvatarURL` when the lookup fails or runs with a canceled context.
+
 ## [0.1.2] - 2026-11-19
 
 ### Added
